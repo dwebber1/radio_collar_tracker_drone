@@ -17,7 +17,7 @@ AC_PROG_SED
 
 # Checks for libraries.
 PKG_CHECK_MODULES([rtlsdr], [librtlsdr])
-
+PKG_CHECK_MODULES([rtlsdr],[libairspy])
 # Checks for header files.
 AC_CHECK_HEADERS([float.h stdint.h stdlib.h string.h unistd.h])
 
