@@ -33,6 +33,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "queue.h"
 #include <stdint.h>
 #include <libairspy/airspy.h>
+#include <libairspy/airspy_commands.h>
 
 // Global constants
 #define FILE_CAPTURE_DAEMON_SLEEP_PERIOD_MS	50
@@ -47,12 +48,14 @@ struct proc_queue_args {
 
 // Global variables
 rtlsdr_dev_t *dev = NULL;
+//pointer for airspy
+struct airspy_device* device = NULL;
 volatile int run = 1;
 pthread_mutex_t lock;
 queue data_queue;
 int counter = 0;
 static uint64_t num_samples = 0;
-char* DATA_DIR = "/home/ntlhui/test/";
+char* DATA_DIR = "/home/daniel/EFE/";
 
 // Function Prototypes
 void sighandler(int signal);
@@ -69,6 +72,9 @@ void printUsage() {
 	printf("usage: sdr_record -r <run_number> [-h] [-g <gain>]\n\t"
 	       "[-f <center_frequency>] [-s <sampling_frequency>] [-o <output_dir>]\n");
 }
+
+
+
 
 /**
  * Main function of this program.
@@ -97,10 +103,13 @@ int main(int argc, char** argv) {
 	struct proc_queue_args pargs;
 	// Device ID
 	int dev_id = 0;
+	//result for airspy
+	int result;
 
 	// Get command line options
 	// printf("Getting command line options\n");
 	while ((opt = getopt(argc, argv, "hg:s:f:r:o:d:")) != -1) {
+		result = AIRSPY_SUCCESS;
 		switch (opt) {
 			case 'h':
 				printUsage();
@@ -119,11 +128,23 @@ int main(int argc, char** argv) {
 				break;
 			case 'o':
 				DATA_DIR = optarg;
-				break;
-			case 'd':
-				dev_id = (atoi(optarg));
-				break;
+				break;		
+			
+			default:
+				printf("unknown argument '-%c %s'\n", opt, optarg);
+				
+				return EXIT_FAILURE;
 		}
+
+		if( result != AIRSPY_SUCCESS ) {
+			printf("argument error: '-%c %s' %s (%d)\n", opt, optarg, airspy_error_name(result), result);
+			usage();
+			return EXIT_FAILURE;
+		}	
+
+	
+
+
 	}
 	if (run_num == -1) {
 		// TODO: add usage notification here!
@@ -142,11 +163,47 @@ int main(int argc, char** argv) {
 
 	// Open SDR
 	// printf("Opening SDR\n");
-	if (rtlsdr_open(&dev, dev_id)) {
-		fprintf(stderr, "ERROR: Failed to open rtlsdr device\n");
-		exit(1);
-	}
+	// if (rtlsdr_open(&dev, dev_id)) {
+	// 	fprintf(stderr, "ERROR: Failed to open rtlsdr device\n");
+	// 	exit(1);
+	// }
 	// printf("SDR Opened\n");
+
+	result = airspy_init(); //init sdr
+	if( result != AIRSPY_SUCCESS ) {
+		printf("airspy_init() failed: %s (%d)\n", airspy_error_name(result), result);
+		return EXIT_FAILURE;
+	}
+
+	result = airspy_open(&device);
+	if(result !=AIRSPY_SUCCESS){
+		printf("airspy_open() failed: %s (%d)\n", airspy_error_name(result), result);
+			airspy_exit();
+			return EXIT_FAILURE;
+	}
+	// result = airspy_set_sample_type(device, sample_type_val);
+	// if (result != AIRSPY_SUCCESS) {
+	// 	printf("airspy_set_sample_type() failed: %s (%d)\n", airspy_error_name(result), result);
+	// 	airspy_close(device);
+	// 	airspy_exit();
+	// 	return EXIT_FAILURE;
+	// }
+
+
+	result = airspy_set_samplerate(device, samp_freq);
+	if (result != AIRSPY_SUCCESS) {
+		printf("airspy_set_samplerate() failed: %s (%d)\n", airspy_error_name(result), result);
+		airspy_close(device);
+		airspy_exit();
+		return EXIT_FAILURE;
+	}
+
+
+
+	
+
+
+
 
 	// Configure SDR
 	// printf("Configuring SDR\n");
