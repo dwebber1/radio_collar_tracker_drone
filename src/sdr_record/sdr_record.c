@@ -40,6 +40,11 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #define FRAMES_PER_FILE	80
 #define META_PREFIX "META_"
 
+
+enum airspy_sample_type sample_type_val = AIRSPY_SAMPLE_INT16_IQ;
+
+#define INT16_EL_SIZE_BYTE (2) 
+
 // Typedefs
 struct proc_queue_args {
 	int run_num;
@@ -55,13 +60,14 @@ pthread_mutex_t lock;
 queue data_queue;
 int counter = 0;
 static uint64_t num_samples = 0;
-char* DATA_DIR = "/home/daniel/EFE/";
+char* DATA_DIR = "/home/vm/EFE/";
 
 // Function Prototypes
 void sighandler(int signal);
 int main(int argc, char** argv);
 void* proc_queue(void* args);
 static void rtlsdr_callback(unsigned char* buf, uint32_t len, void *ctx);
+int airspy_callback(airspy_transfer_t* transfer);
 void lock_mutex();
 void printUsage();
 
@@ -105,7 +111,8 @@ int main(int argc, char** argv) {
 	int dev_id = 0;
 	//result for airspy
 	int result;
-
+	//airspy_samplefrequency 
+	int air_samp_freq =2500000;
 	// Get command line options
 	// printf("Getting command line options\n");
 	while ((opt = getopt(argc, argv, "hg:s:f:r:o:d:")) != -1) {
@@ -162,12 +169,12 @@ int main(int argc, char** argv) {
 	// printf("Done configuring environment\n");
 
 	// Open SDR
-	// printf("Opening SDR\n");
-	// if (rtlsdr_open(&dev, dev_id)) {
-	// 	fprintf(stderr, "ERROR: Failed to open rtlsdr device\n");
-	// 	exit(1);
-	// }
-	// printf("SDR Opened\n");
+	printf("Opening SDR\n");
+	if (rtlsdr_open(&dev, dev_id)) {
+		fprintf(stderr, "ERROR: Failed to open rtlsdr device\n");
+		exit(1);
+	}
+	printf("SDR Opened\n");
 
 	result = airspy_init(); //init sdr
 	if( result != AIRSPY_SUCCESS ) {
@@ -181,18 +188,25 @@ int main(int argc, char** argv) {
 			airspy_exit();
 			return EXIT_FAILURE;
 	}
-	// result = airspy_set_sample_type(device, sample_type_val);
-	// if (result != AIRSPY_SUCCESS) {
-	// 	printf("airspy_set_sample_type() failed: %s (%d)\n", airspy_error_name(result), result);
-	// 	airspy_close(device);
-	// 	airspy_exit();
-	// 	return EXIT_FAILURE;
-	// }
+	result = airspy_set_sample_type(device, sample_type_val);
+	if (result != AIRSPY_SUCCESS) {
+		printf("airspy_set_sample_type() failed: %s (%d)\n", airspy_error_name(result), result);
+		airspy_close(device);
+		airspy_exit();
+		return EXIT_FAILURE;
+	}
 
 
-	result = airspy_set_samplerate(device, samp_freq);
+	result = airspy_set_samplerate(device, air_samp_freq);
 	if (result != AIRSPY_SUCCESS) {
 		printf("airspy_set_samplerate() failed: %s (%d)\n", airspy_error_name(result), result);
+		airspy_close(device);
+		airspy_exit();
+		return EXIT_FAILURE;
+	}
+	result = airspy_set_freq(device, center_freq);
+	if( result != AIRSPY_SUCCESS ) {
+		printf("airspy_set_freq() failed: %s (%d)\n", airspy_error_name(result), result);
 		airspy_close(device);
 		airspy_exit();
 		return EXIT_FAILURE;
@@ -253,7 +267,17 @@ int main(int argc, char** argv) {
 	printf("Starting record\n");
 	clock_gettime(CLOCK_REALTIME, &start_time);
 	// begin recording
-	rtlsdr_read_async(dev, rtlsdr_callback, (void*) &data_queue, 0, block_size);
+	
+	// rtlsdr_read_async(dev, rtlsdr_callback, (void*) &data_queue, 0, block_size);
+	
+	result = airspy_start_rx(device, airspy_callback, (void*) &data_queue);
+	if( result != AIRSPY_SUCCESS ) {
+		printf("airspy_start_rx() failed: %s (%d)\n", airspy_error_name(result), result);
+		airspy_close(device);
+		airspy_exit();
+		return EXIT_FAILURE;
+	}
+
 	// clean up
 	// Add timing data
 	char buf[256];
@@ -262,7 +286,7 @@ int main(int argc, char** argv) {
 	fprintf(timing_stream, "start_time: %f\n",
 	        start_time.tv_sec + (float)start_time.tv_nsec / 1.e9);
 	fprintf(timing_stream, "center_freq: %d\n", center_freq);
-	fprintf(timing_stream, "sampling_freq: %d\n", samp_freq);
+	fprintf(timing_stream, "sampling_freq: %d\n", air_samp_freq);
 	fprintf(timing_stream, "gain: %f\n", gain / 10.0);
 	fclose(timing_stream);
 
@@ -270,6 +294,7 @@ int main(int argc, char** argv) {
 	printf("Queued %f seconds of data\n", num_samples / 2048000.0);
 	pthread_join(thread_id, NULL);
 	rtlsdr_close(dev);
+	airspy_close(device);
 }
 
 /**
@@ -279,7 +304,9 @@ int main(int argc, char** argv) {
 void sighandler(int signal) {
 	printf("Signal caught, exiting\n");
 	run = 0;
+	printf("Closing airspy and rtlsdr\n");
 	rtlsdr_cancel_async(dev);
+	airspy_stop_rx(device);
 }
 
 /**
@@ -364,6 +391,43 @@ static void rtlsdr_callback(unsigned char* buf, uint32_t len, void *ctx) {
 	queue_push((queue*)ctx, (void*) newframe);
 	pthread_mutex_unlock(&lock);
 }
+
+int airspy_callback(airspy_transfer_t* transfer){
+
+	uint32_t bytes_to_write;
+	void* pt_rx_buffer;
+	ssize_t bytes_written;
+	struct timeval time_now;
+	float time_difference, rate;
+
+	counter++;
+	if (counter > 1000) {
+	}
+	if (!run) {
+		return(1);
+	}
+	if( DATA_DIR != NULL ) 
+	{
+		switch(sample_type_val)
+		{
+					
+			case AIRSPY_SAMPLE_INT16_IQ:
+				bytes_to_write = transfer->sample_count * INT16_EL_SIZE_BYTE * 2;
+				pt_rx_buffer = transfer->samples;
+				break;
+
+				default:
+				bytes_to_write = 0;
+				pt_rx_buffer = NULL;
+			break;
+		}
+	}
+
+
+
+}
+
+
 
 void lock_mutex() {
 	pthread_mutex_lock(&lock);
