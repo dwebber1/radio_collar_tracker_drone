@@ -66,8 +66,8 @@ char* DATA_DIR = "/home/vm/EFE/";
 void sighandler(int signal);
 int main(int argc, char** argv);
 void* proc_queue(void* args);
-static void rtlsdr_callback(unsigned char* buf, uint32_t len, void *ctx);
 int airspy_callback(airspy_transfer_t* transfer);
+static void rtlsdr_callback(unsigned char* buf, uint32_t len, void *ctx);
 void lock_mutex();
 void printUsage();
 
@@ -214,11 +214,6 @@ int main(int argc, char** argv) {
 
 
 
-	
-
-
-
-
 	// Configure SDR
 	// printf("Configuring SDR\n");
 	if (rtlsdr_set_tuner_gain_mode(dev, 1)) {
@@ -268,7 +263,7 @@ int main(int argc, char** argv) {
 	clock_gettime(CLOCK_REALTIME, &start_time);
 	// begin recording
 	
-	// rtlsdr_read_async(dev, rtlsdr_callback, (void*) &data_queue, 0, block_size);
+ // rtlsdr_read_async(dev, rtlsdr_callback, (void*) &data_queue, 0, block_size);
 	
 	result = airspy_start_rx(device, airspy_callback, (void*) &data_queue);
 	if( result != AIRSPY_SUCCESS ) {
@@ -277,6 +272,7 @@ int main(int argc, char** argv) {
 		airspy_exit();
 		return EXIT_FAILURE;
 	}
+	printf("AIRSPY_Recording\n");
 
 	// clean up
 	// Add timing data
@@ -334,7 +330,7 @@ void* proc_queue(void* args) {
 
 
 	while (run || !empty) {
-		// printf("RUN: %d\tLENGTH: %d\n", run, data_queue.length);
+		 printf("RUN: %d\tLENGTH: %d\n", run, data_queue.length);
 		lock_mutex();
 		empty = queue_isEmpty(&data_queue);
 		pthread_mutex_unlock(&lock);
@@ -348,7 +344,7 @@ void* proc_queue(void* args) {
 				snprintf(buff, sizeof(buff),
 				         "%s/RAW_DATA_%06d_%06d", DATA_DIR, run_num,
 				         frame_num / FRAMES_PER_FILE + 1);
-				// printf("File: %s\n", buff);
+				printf("File: %s\n", buff);
 				file_num++;
 				data_stream = fopen(buff, "wb");
 			}
@@ -375,53 +371,65 @@ void* proc_queue(void* args) {
 	return NULL;
 }
 
-static void rtlsdr_callback(unsigned char* buf, uint32_t len, void *ctx) {
-	counter++;
-	if (counter > 1000) {
-	}
-	if (!run) {
-		return;
-	}
-	num_samples += len / 2;
-	unsigned char* newframe = malloc(len * sizeof(char));
-	for (int i = 0; i < len; i++) {
-		newframe[i] = buf[i];
-	}
-	pthread_mutex_lock(&lock);
-	queue_push((queue*)ctx, (void*) newframe);
-	pthread_mutex_unlock(&lock);
-}
+// static void rtlsdr_callback(unsigned char* buf, uint32_t len, void *ctx) {
+// 	counter++;
+// 	if (counter > 1000) {
+// 	}
+// 	if (!run) {
+// 		return;
+// 	}
+// 	num_samples += len / 2;
+// 	unsigned char* newframe = malloc(len * sizeof(char));
+// 	for (int i = 0; i < len; i++) {
+// 		newframe[i] = buf[i];
+// 	}
+// 	// pthread_mutex_lock(&lock);
+// 	// queue_push((queue*)ctx, (void*) newframe);
+// 	// pthread_mutex_unlock(&lock);
+// }
 
 int airspy_callback(airspy_transfer_t* transfer){
 
+	void* air_ctx;
 	uint32_t bytes_to_write;
-	void* pt_rx_buffer;
-	ssize_t bytes_written;
-	struct timeval time_now;
-	float time_difference, rate;
+	unsigned char*  pt_rx_buffer;
+	
+	
 
 	counter++;
 	if (counter > 1000) {
 	}
 	if (!run) {
 		return(1);
+		printf("return\n");
 	}
-	if( DATA_DIR != NULL ) 
-	{
-		switch(sample_type_val)
-		{
-					
-			case AIRSPY_SAMPLE_INT16_IQ:
-				bytes_to_write = transfer->sample_count * INT16_EL_SIZE_BYTE * 2;
-				pt_rx_buffer = transfer->samples;
-				break;
+	
+		
+	bytes_to_write = transfer->sample_count * INT16_EL_SIZE_BYTE * 2;
+	pt_rx_buffer = (unsigned char *) transfer->samples;
+				
+				
 
-				default:
-				bytes_to_write = 0;
-				pt_rx_buffer = NULL;
-			break;
-		}
+				
+	
+
+	//num_samples += bytes_to_write / 2;
+	unsigned char* frame = malloc(bytes_to_write * sizeof(char));
+	for (int i = 0; i < bytes_to_write; i++) {
+		frame[i] = pt_rx_buffer[i];
+
+
 	}
+	pthread_mutex_lock(&lock);
+	//  queue_push((queue*)air_ctx, (void*) frame);
+	pthread_mutex_unlock(&lock);
+
+
+		
+	
+
+return(1);
+
 
 
 
