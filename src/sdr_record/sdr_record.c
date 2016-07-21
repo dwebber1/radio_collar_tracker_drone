@@ -67,7 +67,7 @@ void sighandler(int signal);
 int main(int argc, char** argv);
 void* proc_queue(void* args);
 int airspy_callback(airspy_transfer_t* transfer);
-static void rtlsdr_callback(unsigned char* buf, uint32_t len, void *ctx);
+//static void rtlsdr_callback(unsigned char* buf, uint32_t len, void *ctx);
 void lock_mutex();
 void printUsage();
 
@@ -204,13 +204,7 @@ int main(int argc, char** argv) {
 		airspy_exit();
 		return EXIT_FAILURE;
 	}
-	result = airspy_set_freq(device, center_freq);
-	if( result != AIRSPY_SUCCESS ) {
-		printf("airspy_set_freq() failed: %s (%d)\n", airspy_error_name(result), result);
-		airspy_close(device);
-		airspy_exit();
-		return EXIT_FAILURE;
-	}
+	
 
 
 
@@ -263,15 +257,25 @@ int main(int argc, char** argv) {
 	clock_gettime(CLOCK_REALTIME, &start_time);
 	// begin recording
 	
- // rtlsdr_read_async(dev, rtlsdr_callback, (void*) &data_queue, 0, block_size);
+ 	//rtlsdr_read_async(dev, rtlsdr_callback, (void*) &data_queue, 0, block_size);
 	
-	result = airspy_start_rx(device, airspy_callback, (void*) &data_queue);
+	result = airspy_start_rx(device, airspy_callback, NULL);
 	if( result != AIRSPY_SUCCESS ) {
 		printf("airspy_start_rx() failed: %s (%d)\n", airspy_error_name(result), result);
 		airspy_close(device);
 		airspy_exit();
 		return EXIT_FAILURE;
 	}
+
+	result = airspy_set_freq(device, center_freq);
+	if( result != AIRSPY_SUCCESS ) {
+		printf("airspy_set_freq() failed: %s (%d)\n", airspy_error_name(result), result);
+		airspy_close(device);
+		airspy_exit();
+		return EXIT_FAILURE;
+	}
+
+
 	printf("AIRSPY_Recording\n");
 
 	// clean up
@@ -327,16 +331,33 @@ void* proc_queue(void* args) {
 	pthread_mutex_lock(&lock);
 	empty = queue_isEmpty(&data_queue);
 	pthread_mutex_unlock(&lock);
+	sleep(1);
 
 
 	while (run || !empty) {
-		 printf("RUN: %d\tLENGTH: %d\n", run, data_queue.length);
+		
+		int result;
+		printf("RUN: %d\tLENGTH: %d\n", run, data_queue.length);
 		lock_mutex();
 		empty = queue_isEmpty(&data_queue);
+		
 		pthread_mutex_unlock(&lock);
+
+				
+		result = airspy_is_streaming(device);
+		if(result != AIRSPY_TRUE){
+			
+
+			run =  0;
+
+		} 
+		// printf(airspy_error_name(result), result,"\n");
+
+		
 
 		if (!empty) {
 			// Process queue
+			printf("Process Queue\n");
 			if (frame_num / FRAMES_PER_FILE + 1 != file_num) {
 				if (data_stream) {
 					fclose(data_stream);
@@ -365,7 +386,10 @@ void* proc_queue(void* args) {
 			usleep(FILE_CAPTURE_DAEMON_SLEEP_PERIOD_MS * 1000);
 		}
 	}
-	fclose(data_stream);
+	if(data_stream){
+		fclose(data_stream);
+	}
+	
 	printf("Recorded %f seconds of data to disk\n", num_samples / 2048000.0);
 	printf("Queue length at end: %d.\n", data_queue.length);
 	return NULL;
@@ -378,21 +402,23 @@ void* proc_queue(void* args) {
 // 	if (!run) {
 // 		return;
 // 	}
-// 	num_samples += len / 2;
+// 	num_samples += len/2 ;
 // 	unsigned char* newframe = malloc(len * sizeof(char));
 // 	for (int i = 0; i < len; i++) {
 // 		newframe[i] = buf[i];
 // 	}
-// 	// pthread_mutex_lock(&lock);
-// 	// queue_push((queue*)ctx, (void*) newframe);
-// 	// pthread_mutex_unlock(&lock);
+// 	pthread_mutex_lock(&lock);
+// 	queue_push((queue*)ctx, (void*) newframe);
+// 	pthread_mutex_unlock(&lock);
 // }
 
 int airspy_callback(airspy_transfer_t* transfer){
 
-	void* air_ctx;
-	uint32_t bytes_to_write;
+	//void* airctx=malloc(sizeof(airctx));
+	//void* airctx;
+	volatile uint32_t  bytes_to_write;
 	unsigned char*  pt_rx_buffer;
+
 	
 	
 
@@ -404,34 +430,24 @@ int airspy_callback(airspy_transfer_t* transfer){
 		printf("return\n");
 	}
 	
-		
+
 	bytes_to_write = transfer->sample_count * INT16_EL_SIZE_BYTE * 2;
 	pt_rx_buffer = (unsigned char *) transfer->samples;
-				
-				
 
-				
-	
 
-	//num_samples += bytes_to_write / 2;
+	//num_samples += transfer->sample_count * INT16_EL_SIZE_BYTE * 2;
 	unsigned char* frame = malloc(bytes_to_write * sizeof(char));
 	for (int i = 0; i < bytes_to_write; i++) {
 		frame[i] = pt_rx_buffer[i];
 
-
 	}
 	pthread_mutex_lock(&lock);
-	//  queue_push((queue*)air_ctx, (void*) frame);
-	pthread_mutex_unlock(&lock);
-
-
-		
+	printf("Pushing\n");
+	queue_push(&data_queue, (void*) frame);
+	pthread_mutex_unlock(&lock);		
 	
 
-return(1);
-
-
-
+	return(0);
 
 }
 
