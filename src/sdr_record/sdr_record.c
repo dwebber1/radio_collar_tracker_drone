@@ -56,7 +56,7 @@ rtlsdr_dev_t *dev = NULL;
 //pointer for airspy
 struct airspy_device* device = NULL;
 volatile int run = 1;
-pthread_mutex_t lock;
+pthread_mutex_t logid ck;
 queue data_queue;
 int counter = 0;
 static uint64_t num_samples = 0;
@@ -351,7 +351,7 @@ void* proc_queue(void* args) {
 			run =  0;
 
 		} 
-		// printf(airspy_error_name(result), result,"\n");
+		//printf(airspy_error_name(result), result,"\n");
 
 		
 
@@ -390,7 +390,7 @@ void* proc_queue(void* args) {
 		fclose(data_stream);
 	}
 	
-	printf("Recorded %f seconds of data to disk\n", num_samples / 2048000.0);
+	printf("Recorded %f seconds of data to disk\n", num_samples / 2500000.0);
 	printf("Queue length at end: %d.\n", data_queue.length);
 	return NULL;
 }
@@ -416,7 +416,7 @@ int airspy_callback(airspy_transfer_t* transfer){
 
 	//void* airctx=malloc(sizeof(airctx));
 	//void* airctx;
-	volatile uint32_t  bytes_to_write;
+	 uint32_t  bytes_to_write;
 	unsigned char*  pt_rx_buffer;
 
 	
