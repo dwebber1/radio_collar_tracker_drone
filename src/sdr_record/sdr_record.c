@@ -24,7 +24,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <rtl-sdr.h>
+//#include <rtl-sdr.h>
 #include <signal.h>
 #include <pthread.h>
 #include <sys/queue.h>
@@ -40,6 +40,8 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #define FRAMES_PER_FILE	80
 #define META_PREFIX "META_"
 
+ #define GAIN_MAX (21)
+
 
 enum airspy_sample_type sample_type_val = AIRSPY_SAMPLE_INT16_IQ;
 
@@ -52,11 +54,11 @@ struct proc_queue_args {
 };
 
 // Global variables
-rtlsdr_dev_t *dev = NULL;
+// rtlsdr_dev_t *dev = NULL;
 //pointer for airspy
 struct airspy_device* device = NULL;
 volatile int run = 1;
-pthread_mutex_t logid ck;
+pthread_mutex_t  lock;
 queue data_queue;
 int counter = 0;
 static uint64_t num_samples = 0;
@@ -75,7 +77,7 @@ void printUsage();
  * Prints the usage statement for this program.
  */
 void printUsage() {
-	printf("usage: sdr_record -r <run_number> [-h] [-g <gain>]\n\t"
+	printf("usage: sdr_record -r <run_number> [-h] [-g <gain>] [-t <gain type> S = 1 L= 2]\n\t"
 	       "[-f <center_frequency>] [-s <sampling_frequency>] [-o <output_dir>]\n");
 }
 
@@ -91,8 +93,9 @@ int main(int argc, char** argv) {
 	int opt;
 	// SDR Gain
 	int gain = 0;
+	int gainType = -1;
 	// Sampling Frequency for SDR in samples per second
-	int samp_freq = 2048000;
+	//int samp_freq = 2048000;
 	// Center Frequency for SDR in Hz
 	int center_freq = 172464000;
 	// Run number
@@ -108,24 +111,27 @@ int main(int argc, char** argv) {
 	// proc_queue args
 	struct proc_queue_args pargs;
 	// Device ID
-	int dev_id = 0;
+	// int dev_id = 0;
 	//result for airspy
 	int result;
 	//airspy_samplefrequency 
 	int air_samp_freq =2500000;
 	// Get command line options
 	// printf("Getting command line options\n");
-	while ((opt = getopt(argc, argv, "hg:s:f:r:o:d:")) != -1) {
+	while ((opt = getopt(argc, argv, "hg:t:s:f:r:o:d:")) != -1) {
 		result = AIRSPY_SUCCESS;
 		switch (opt) {
 			case 'h':
 				printUsage();
 				exit(0);
 			case 'g':
-				gain = (int)(atof(optarg) * 10);
+				gain = (int)(atof(optarg));
+				break;
+			case 't':
+				gainType = (int)(atof(optarg));
 				break;
 			case 's':
-				samp_freq = (int)(atof(optarg));
+				air_samp_freq = (int)(atof(optarg));
 				break;
 			case 'f':
 				center_freq = (int)(atof(optarg));
@@ -159,6 +165,24 @@ int main(int argc, char** argv) {
 		printUsage();
 		exit(-1);
 	}
+	if (gainType == -1) {
+		// TODO: add usage notification here!
+		fprintf(stderr, "ERROR: Need Gain Type!\n");
+		printUsage();
+		exit(-1);
+	}
+
+	if (gain > GAIN_MAX){
+		fprintf(stderr, "Gain Value Too Large!\n");
+		printUsage();
+		exit(-1);
+
+	}
+
+
+
+
+
 	printf("SDR_RECORD: Run Number %d\n", run_num);
 	// printf("done\n");
 
@@ -169,12 +193,12 @@ int main(int argc, char** argv) {
 	// printf("Done configuring environment\n");
 
 	// Open SDR
-	printf("Opening SDR\n");
-	if (rtlsdr_open(&dev, dev_id)) {
-		fprintf(stderr, "ERROR: Failed to open rtlsdr device\n");
-		exit(1);
-	}
-	printf("SDR Opened\n");
+	// printf("Opening SDR\n");
+	// if (rtlsdr_open(&dev, dev_id)) {
+	// 	fprintf(stderr, "ERROR: Failed to open rtlsdr device\n");
+	// 	exit(1);
+	// }
+	
 
 	result = airspy_init(); //init sdr
 	if( result != AIRSPY_SUCCESS ) {
@@ -188,6 +212,7 @@ int main(int argc, char** argv) {
 			airspy_exit();
 			return EXIT_FAILURE;
 	}
+	printf("SDR Opened\n");
 	result = airspy_set_sample_type(device, sample_type_val);
 	if (result != AIRSPY_SUCCESS) {
 		printf("airspy_set_sample_type() failed: %s (%d)\n", airspy_error_name(result), result);
@@ -204,32 +229,58 @@ int main(int argc, char** argv) {
 		airspy_exit();
 		return EXIT_FAILURE;
 	}
+	if (gainType == 1){
+		result =  airspy_set_linearity_gain(device, gain);
+		printf("Gain Set to linearity_gain\n");
+			if( result != AIRSPY_SUCCESS ) {
+				printf("airspy_set_linearity_gain() failed: %s (%d)\n", airspy_error_name(result), result);
+			}
+		}
+	if (gainType == 2){
+		printf("Gain Set to sensitivity_gain\n");
+		result =  airspy_set_sensitivity_gain(device, gain);
+			if( result != AIRSPY_SUCCESS ) {
+				printf("airspy_set_sensitivity_gain() failed: %s (%d)\n", airspy_error_name(result), result);
+			}
+
+	}
+	result = airspy_set_rf_bias(device, 0); // 0 for off, currently don't have any devices that need this, just making sure it is off.
+	if( result != AIRSPY_SUCCESS ) {
+		printf("airspy_set_rf_bias() failed: %s (%d)\n", airspy_error_name(result), result);
+		airspy_close(device);
+		airspy_exit();
+		return EXIT_FAILURE;
+	}
+
+
+
+
 	
 
 
 
 	// Configure SDR
 	// printf("Configuring SDR\n");
-	if (rtlsdr_set_tuner_gain_mode(dev, 1)) {
-		fprintf(stderr, "ERROR: Failed to enable manual gain.\n");
-		exit(1);
-	}
-	if (rtlsdr_set_tuner_gain(dev, gain)) {
-		fprintf(stderr, "ERROR: Failed to set tuner gain.\n");
-		exit(1);
-	}
-	if (rtlsdr_set_center_freq(dev, center_freq)) {
-		fprintf(stderr, "ERROR: Failed to set center frequency.\n");
-		exit(1);
-	}
-	if (rtlsdr_set_sample_rate(dev, samp_freq)) {
-		fprintf(stderr, "ERROR: Failed to set sampling frequency.\n");
-		exit(1);
-	}
-	if (rtlsdr_reset_buffer(dev)) {
-		fprintf(stderr, "ERROR: Failed to reset buffers.\n");
-		exit(1);
-	}
+	// if (rtlsdr_set_tuner_gain_mode(dev, 1)) {
+	// 	fprintf(stderr, "ERROR: Failed to enable manual gain.\n");
+	// 	exit(1);
+	// }
+	// if (rtlsdr_set_tuner_gain(dev, gain)) {
+	// 	fprintf(stderr, "ERROR: Failed to set tuner gain.\n");
+	// 	exit(1);
+	// }
+	// if (rtlsdr_set_center_freq(dev, center_freq)) {
+	// 	fprintf(stderr, "ERROR: Failed to set center frequency.\n");
+	// 	exit(1);
+	// }
+	// if (rtlsdr_set_sample_rate(dev, samp_freq)) {
+	// 	fprintf(stderr, "ERROR: Failed to set sampling frequency.\n");
+	// 	exit(1);
+	// }
+	// if (rtlsdr_reset_buffer(dev)) {
+	// 	fprintf(stderr, "ERROR: Failed to reset buffers.\n");
+	// 	exit(1);
+	// }
 	// printf("SDR Configured.\n");
 
 	// Configure signal handlers
@@ -293,7 +344,7 @@ int main(int argc, char** argv) {
 	printf("Stopping record\n");
 	printf("Queued %f seconds of data\n", num_samples / 2048000.0);
 	pthread_join(thread_id, NULL);
-	rtlsdr_close(dev);
+	//rtlsdr_close(dev);
 	airspy_close(device);
 }
 
@@ -304,8 +355,8 @@ int main(int argc, char** argv) {
 void sighandler(int signal) {
 	printf("Signal caught, exiting\n");
 	run = 0;
-	printf("Closing airspy and rtlsdr\n");
-	rtlsdr_cancel_async(dev);
+	printf("Closing airspy \n");
+	//rtlsdr_cancel_async(dev);
 	airspy_stop_rx(device);
 }
 
@@ -416,7 +467,7 @@ int airspy_callback(airspy_transfer_t* transfer){
 
 	//void* airctx=malloc(sizeof(airctx));
 	//void* airctx;
-	 uint32_t  bytes_to_write;
+	uint32_t  bytes_to_write;
 	unsigned char*  pt_rx_buffer;
 
 	
