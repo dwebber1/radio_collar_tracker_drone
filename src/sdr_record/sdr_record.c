@@ -81,9 +81,6 @@ void printUsage() {
 	       "[-f <center_frequency>] [-s <sampling_frequency>] [-o <output_dir>]\n");
 }
 
-
-
-
 /**
  * Main function of this program.
  */
@@ -155,9 +152,6 @@ int main(int argc, char** argv) {
 			return EXIT_FAILURE;
 		}	
 
-	
-
-
 	}
 	if (run_num == -1) {
 		// TODO: add usage notification here!
@@ -178,10 +172,6 @@ int main(int argc, char** argv) {
 		exit(-1);
 
 	}
-
-
-
-
 
 	printf("SDR_RECORD: Run Number %d\n", run_num);
 	// printf("done\n");
@@ -205,7 +195,6 @@ int main(int argc, char** argv) {
 		printf("airspy_init() failed: %s (%d)\n", airspy_error_name(result), result);
 		return EXIT_FAILURE;
 	}
-
 	result = airspy_open(&device);
 	if(result !=AIRSPY_SUCCESS){
 		printf("airspy_open() failed: %s (%d)\n", airspy_error_name(result), result);
@@ -220,8 +209,6 @@ int main(int argc, char** argv) {
 		airspy_exit();
 		return EXIT_FAILURE;
 	}
-
-
 	result = airspy_set_samplerate(device, air_samp_freq);
 	if (result != AIRSPY_SUCCESS) {
 		printf("airspy_set_samplerate() failed: %s (%d)\n", airspy_error_name(result), result);
@@ -251,13 +238,6 @@ int main(int argc, char** argv) {
 		airspy_exit();
 		return EXIT_FAILURE;
 	}
-
-
-
-
-	
-
-
 
 	// Configure SDR
 	// printf("Configuring SDR\n");
@@ -338,12 +318,13 @@ int main(int argc, char** argv) {
 	        start_time.tv_sec + (float)start_time.tv_nsec / 1.e9);
 	fprintf(timing_stream, "center_freq: %d\n", center_freq);
 	fprintf(timing_stream, "sampling_freq: %d\n", air_samp_freq);
-	fprintf(timing_stream, "gain: %f\n", gain / 10.0);
+	fprintf(timing_stream, "gain: %f\n", gain / 1.0);
 	fclose(timing_stream);
 
-	printf("Stopping record\n");
-	printf("Queued %f seconds of data\n", num_samples / 2048000.0);
+	
 	pthread_join(thread_id, NULL);
+	printf("Stopping record\n");
+	printf("Queued %f seconds of data\n", num_samples / 2500000.0);
 	//rtlsdr_close(dev);
 	airspy_close(device);
 }
@@ -470,21 +451,16 @@ int airspy_callback(airspy_transfer_t* transfer){
 	uint32_t  bytes_to_write;
 	unsigned char*  pt_rx_buffer;
 
-	
-	
-
 	counter++;
 	if (counter > 1000) {
 	}
 	if (!run) {
 		return(1);
 		printf("return\n");
-	}
-	
+	}	
 
 	bytes_to_write = transfer->sample_count * INT16_EL_SIZE_BYTE * 2;
 	pt_rx_buffer = (unsigned char *) transfer->samples;
-
 
 	//num_samples += transfer->sample_count * INT16_EL_SIZE_BYTE * 2;
 	unsigned char* frame = malloc(bytes_to_write * sizeof(char));
@@ -496,7 +472,6 @@ int airspy_callback(airspy_transfer_t* transfer){
 	printf("Pushing\n");
 	queue_push(&data_queue, (void*) frame);
 	pthread_mutex_unlock(&lock);		
-	
 
 	return(0);
 
